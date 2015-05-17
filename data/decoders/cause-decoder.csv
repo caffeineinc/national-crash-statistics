@@ -428,3 +428,4 @@ Raw,space_pos,space_ascii,code,decode,Category,Requires Subject,Pretty
 996 Old 952: Suicide,4,TRUE,996,Old 952: Suicide,Miscellaneous,TRUE,committed suicide
 997 Old 400: Specific cyclist faults,4,TRUE,997,Old 400: Specific cyclist faults,Miscellaneous,TRUE,did something miscellaneous wrong
 998 Old 930: Bicycle faults,4,TRUE,998,Old 930: Bicycle faults,Miscellaneous,TRUE,had a faulty bicycle
+999 Unknown / Unlisted at NZTA,4,TRUE,999,Unknown,Miscellaneous,TRUE,unknown.

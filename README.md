@@ -24,6 +24,7 @@ Please, feel absolutely free. The data is open, and so is this. Get the map work
 cd /path/to/directory/
 git clone https://github.com/alpha-beta-soup/national-crash-statistics
 ```
+
 If you have Python2, then run
 ```bash
 python -m SimpleHTTPServer 8000
@@ -34,6 +35,25 @@ python3 -m http.server 8000
 ```
 
 The navigate to [http://localhost:8000/](http://localhost:8000/) in your browser to have a look at the map. This is how you can preview any changes you make.
+
+Requirements:
+--------------------
+```bash
+cd /tmp/
+git clone https://github.com/jswhit/pyproj.git 
+cd pyproj
+python setup.py build
+sudo python setup.py install
+```
+
+```bash
+cd /tmp/
+wget https://pypi.python.org/packages/source/g/geojson/geojson-1.0.9.tar.gz#md5=94880d993dba8b184de122c5a84fa329
+gunzip geojson-1.0.9.tar.gz | tar -xopf geojson-1.0.9.tar
+cd geojson-1.0.9
+python setup.py build
+sudo python setup.py install
+```
 
 The basic structure is as follows:
 * `nzta2geojson.py` creates the file `data.geojson` that represents the location of each crash. Its properties are what the filters look for (e.g. `alcohol = true` will give you all accidents where alcohol was a listed "role or factor" in the accident). The Python script is what performs these checks, once, before writing the output. This is executed with `cd source/ && python nzta2geojson.py`.

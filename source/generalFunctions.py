@@ -12,6 +12,7 @@ datetime
 '''
 
 import datetime
+import re
 
 def empty(string):
     if string in ['', ' ', None]:
@@ -42,6 +43,17 @@ def formatDate(datestring):
             # Poorly formatted date in source data
             return None
 
+def formatDateISO(datestring):
+    '''Returns a datetime.date object when given a date as a string of the form
+    DD/MM/YYYY (e.g. 30/01/2014)'''
+    if empty(datestring):
+        return None
+    else:
+        try:
+            return datetime.datetime.strptime(re.sub(r'\s+', '', datestring), "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
 def ordinal(n):
     return str(n)+("th" if 4<=n%100<=20 else {1:"st",2:"nd",3:"rd"}.get(n%10, "th"))
 
@@ -59,15 +71,17 @@ def formatNiceTime(time):
         return ''
     t = str(time).split(":")
     return "%s:%s" % (t[0],t[1])
-    
+
 def formatCrashTime(crashtime, dateobj):
     '''Returns a datetime.time object when given a time as a string from the
     `row`. These are purportedly recorded "in 24-hour time", but are lacking
     leading zeros in the dataset, which is addressed here.'''
-    if empty(crashtime):
+    try:
+        return datetime.datetime.strptime(str(dateobj)+" "+'0'*(4-len(crashtime))+crashtime,'%Y-%m-%d %H%M').time()
+    except ValueError:
+        # Poorly formatted date in source data
         return None
-    return datetime.datetime.strptime(str(dateobj)+" "+'0'*(4-len(crashtime))+crashtime,'%Y-%m-%d %H%M').time()
-    
+
 def check_offroad(crash_road):
     '''Applies a check for 'Z': the flat for offroad indicator, and corrects
     strings representing these places so that they're a bit nicer to read.'''

@@ -21,7 +21,8 @@ import generalFunctions as genFunc
 import re
 import logging
 import datetime
-     
+import MySQLdb
+
 class nztacrash:
     '''A crash recorded by NZTA'''
     def __init__(self, row, causedecoder, streetdecoder, holidays):
@@ -55,6 +56,7 @@ class nztacrash:
         self.side_road = self.get_side_road()
         self.crash_id = genFunc.formatString(row[6])
         self.crash_date = genFunc.formatDate(row[7])
+        self.crash_dateISO = genFunc.formatDateISO(row[7])
         self.crash_dow = self.get_crash_dow()
         self.crash_time = genFunc.formatCrashTime(row[9], self.crash_date) # Returns a datetime.datetime.time() object
         self.crash_datetime = self.get_crash_datetime()
@@ -388,6 +390,7 @@ class nztacrash:
                    'P': ['moped-icon.svg', 'Moped'],
                    'S': ['bicycle-icon.svg', 'Bicycle'],
                    'O': [other, 'Miscellaneous Vehicle'],
+                   'U': [other, 'Miscellaneous Vehicle'],
                    'E': ['pedestrian-icon.svg', 'Pedestrian'],
                    'K': [other, 'Skateboard, inline skater, etc.'],
                    'Q': ['equestrian-icon.svg', 'equestrian'],
@@ -541,14 +544,15 @@ class nztacrash:
            'P': '<strong>moped rider</strong>',
            'S': '<strong>cyclist</strong>',
            'O': 'driver of the <strong>vehicle</strong> of unknown type',
-           'E': '<strong>pedestrian</strong>', 
+           'U': 'driver of the <strong>vehicle</strong> of unknown type',
+           'E': '<strong>pedestrian</strong>',
            'K': '<strong>skater</strong>',
            'Q': '<strong>equestrian</strong>',
            'H': '<strong>wheeled pedestrian</strong>'}
         
         # Keep track of the numbers of each mode we see, so the text can be formed
         # using ordinal text ('the first car', etc.)
-        modes, mode_counter = ['C','V','X','B','L','4','T','M','P','S','E','K','Q','H','O'], {}
+        modes, mode_counter = ['C','V','X','B','L','4','T','M','P','S','E','K','Q','H','O','U'], {}
         for m in modes:
             mode_counter[m] = 0 # Initially 0, gets incremented
         
@@ -661,14 +665,29 @@ class nztacrash:
         'ch': self.get_injured_child(), # Child pedestrian/cyclist Boolean
         'ij': self.get_worst_injury_text()}, # f,s,m,n >> worst injury as text
         'geometry': {'type': 'Point', 'coordinates': (self.lat, self.lon)}}
-        
+
+    def __mysql_interface__(self):
+        '''
+        '''
+        if self.hasLocation is False:
+            # Can't add it to the map if it does not have a location
+            return None
+
+        return (
+            self.tla_name, # Name of Territorial Local Authority
+            genFunc.formatNiceRoad(self.get_crashroad()),  # The road, nicely formatted
+            self.lat,
+            self.lon,
+            self.crash_dateISO,
+            genFunc.formatNiceTime(self.crash_time))  # The tate, nicely formatted
+
     def decodeMovement(self):
         '''Decodes self.mvmt into a human-readable form.
         Movement applies to left and right hand bends, curves, or turns.'''
         decoder = {'A': ('Overtaking and lane change', {'A': 'Pulling out or changing lane to right', 'B': 'Head on', 'C': 'Cutting in or changing lane to left', 'D': 'Lost control (overtaking vehicle)', 'E': 'Side road', 'F': 'Lost control (overtaken vehicle)', 'G': 'Weaving in heavy traffic', 'O': 'Other'}),
                  'B': ('Head on',{'A': 'On straight', 'B': 'Cutting corner', 'C': 'Swinging wide', 'D': 'Both cutting corner and swining wide, or unknown', 'E': 'Lost control on straight', 'F': 'Lost control on curve', 'O': 'Other'}),
                  'C': ('Lost control or off road (straight roads)',{'A': 'Out of control on roadway', 'B': 'Off roadway to left', 'C': 'Off roadway to right', 'O': 'Other'}),
-                 'D': ('Cornering',{'A': 'Lost control turning right', 'B': 'Lost control turning left', 'C':' Missed intersection or end of road', 'O': 'Other'}),
+                 'D': ('Cornering',{'A': 'Lost control turning right', 'B': 'Lost control turning left', 'C':'Missed intersection or end of road', 'O': 'Other'}),
                  'E': ('Collision with obstruction',{'A': 'Parked vehicle', 'B': 'Crash or broken down', 'C': 'Non-vehicular obstructions (including animals)', 'D': 'Workman\'s vehicle', 'E': 'Opening door', 'O': 'Other'}),
                  'F': ('Rear end',{'A': 'Slower vehicle', 'B': 'Cross traffic', 'C': 'Pedestrian', 'D': 'Queue', 'E': 'Signals', 'F': 'Other', 'O': 'Other'}),
                  'G': ('Turning versus same direction',{'A': 'Rear of left turning vehicle', 'B': 'Left turn side swipe', 'C': 'Stopped or turning from left side', 'D': 'Near centre line', 'E': 'Overtaking vehicle', 'F': 'Two turning', 'O': 'Other'}),
@@ -706,6 +725,7 @@ class nztacrash:
                                'S': 'bicycle',
                                'K': 'skateboard/in-line skater/etc.',
                                'O': 'other/unknown',
+                               'U': 'other/unknown',
                                'E': 'pedestrian'}
                 except KeyError:
                     return None
@@ -1088,47 +1108,76 @@ def get_official_holiday_periods():
     return hols
     
 def main(data,causes,streets,holidays):
-    global_start = datetime.date(2014,8,1)
+    db = MySQLdb.connect(
+        host="localhost", # your host, usually localhost
+        user="root", # your username
+        passwd="", # your password
+        db="NZTA_crash") # name of the data base
+
+    cursor = db.cursor()
+
+    global_start = datetime.date(2000,1,1)
     global_end = datetime.date(2015,3,1)
     causedecoder = causeDecoderCSV(causes) # Decode the coded values
     streetdecoder = streetDecoderCSV(streets)
     feature_collection = {"type": "FeatureCollection","features": []}
-    with open('../data/data.geojson', 'w') as outfile:
-        for d in data: # For each CSV of source data
-            # Open and read the CSV of crash events
-            with open(d, 'rb') as crashcsv:
-                crashreader = csv.reader(crashcsv, delimiter=',')
-                header = crashreader.next()
-                
-                for crash in crashreader:
-                    Crash = nztacrash(crash, causedecoder, streetdecoder, holidays)
-                    # Collect crash descriptions and locations into the feature collection
-                    # Only add features with a location
-                    # And that are within the acceptable date range
-                    if Crash.crash_date == None or Crash.hasLocation == False:
-                        continue
-                    if global_start <= Crash.crash_date <= global_end:
-                        feature_collection["features"].append(Crash.__geo_interface__())
-                crashcsv.close()
-        # Write the geojson output
-        outfile.write(json.dumps(feature_collection, separators=(',',':')))
-        outfile.close()
+    for d in data: # For each CSV of source data
+        # Open and read the CSV of crash events
+        with open(d, 'rb') as crashcsv:
+            crashreader = csv.reader(crashcsv, delimiter=',')
+            header = crashreader.next()
+            for crash in crashreader:
+                # exclude badly formatted data.
+                crash = nztacrash(crash, causedecoder, streetdecoder, holidays)
+                interface = crash.__mysql_interface__()
+
+                # Collect crash descriptions and locations into the feature collection
+                # Only add features with a location
+                # And that are within the acceptable date range
+                if crash.crash_date is None or crash.crash_dateISO is None or crash.hasLocation is False or interface is None:
+                    continue
+
+                if global_start <= crash.crash_date <= global_end:
+                    insert_stmt = (
+                        "INSERT INTO Crash (local_auth, street, lat, `long`, date, time)"
+                        "VALUES (%s, %s, %s, %s, %s, %s);"
+                    )
+                    cursor.execute(insert_stmt, interface)
+                    db.commit()
+            crashcsv.close()
+    db.close()
 
 if __name__ == '__main__':
     # Set paths
-    data = ['../data/crash-data-2014.csv',
+    data = [
+        '../data/crash-data-2000.csv',
+        '../data/crash-data-2001.csv',
+        '../data/crash-data-2002.csv',
+        '../data/crash-data-2003.csv',
+        '../data/crash-data-2004.csv',
+        '../data/crash-data-2005.csv',
+        '../data/crash-data-2006.csv',
+        '../data/crash-data-2007.csv',
+        '../data/crash-data-2008.csv',
+        '../data/crash-data-2009.csv',
+        '../data/crash-data-2010.csv',
+        '../data/crash-data-2011.csv',
+        '../data/crash-data-2012.csv',
+        '../data/crash-data-2013.csv',
+        '../data/crash-data-2014.csv',
         '../data/crash-data-2015-partial.csv']
+
     causes = '../data/decoders/cause-decoder.csv'
     streets = '../data/decoders/NZ-post-street-types.csv'
     holidays = get_official_holiday_periods()
     
     # Set up error logging
     logger = 'crash_error.log'
-    with open(logger,'w'):
+    with open(logger, 'w'):
         pass # Clear the log from previous runs
-    logging.basicConfig(filename=logger,level=logging.DEBUG)
+    logging.basicConfig(filename=logger, level=logging.DEBUG)
     
     # Run main function
-    main(data,causes,streets,holidays)
+    main(data, causes, streets, holidays)
 
 
